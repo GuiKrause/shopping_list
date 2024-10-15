@@ -14,44 +14,58 @@ class YourGroceries extends StatefulWidget {
 }
 
 class _YourGroceriesState extends State<YourGroceries> {
-  final List<GroceryItem> _groceryItems = [];
-  late Future<List<GroceryItem>> _loadedItems;
+  List<GroceryItem> _groceryItems = [];
+  var _isLoading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _loadedItems = _loadItems();
+    _loadItems();
   }
 
-  Future<List<GroceryItem>> _loadItems() async {
+  void _loadItems() async {
     final url = Uri.https(
         'flutter-prep-bcf8a-default-rtdb.firebaseio.com', 'shopping-list.json');
-    final response = await http.get(url);
-    if (response.statusCode >= 400) {
-      throw Exception('Failed to fetch grocery items. Please try again later');
+    try {
+      final response = await http.get(url);
+      if (response.statusCode >= 400) {
+        setState(() {
+          _error = 'Failed to fetch data. Please try again later';
+        });
+      }
+      if (response.body == 'null') {
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+      final Map<String, dynamic> listData = json.decode(response.body);
+      final List<GroceryItem> loadedItems = [];
+      for (var item in listData.entries) {
+        final category = categories.entries
+            .firstWhere(
+              (catItem) => catItem.value.title == item.value['category'],
+            )
+            .value;
+        loadedItems.add(
+          GroceryItem(
+            id: item.key,
+            name: item.value['name'],
+            quantity: item.value['quantity'],
+            category: category,
+          ),
+        );
+        setState(() {
+          _groceryItems = loadedItems;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = 'Something went wrong. Please try again later';
+      });
     }
-    if (response.body == 'null') {
-      return [];
-    }
-    final Map<String, dynamic> listData = json.decode(response.body);
-    final List<GroceryItem> loadedItems = [];
-    for (var item in listData.entries) {
-      final category = categories.entries
-          .firstWhere(
-            (catItem) => catItem.value.title == item.value['category'],
-          )
-          .value;
-      loadedItems.add(
-        GroceryItem(
-          id: item.key,
-          name: item.value['name'],
-          quantity: item.value['quantity'],
-          category: category,
-        ),
-      );
-    }
-    return loadedItems;
   }
 
   void _addItem() async {
@@ -89,6 +103,55 @@ class _YourGroceriesState extends State<YourGroceries> {
 
   @override
   Widget build(BuildContext context) {
+    Widget currentWidget = _isLoading
+        ? const Center(
+            child: CircularProgressIndicator(),
+          )
+        : _groceryItems.isNotEmpty
+            ? ListView.builder(
+                itemCount: _groceryItems.length,
+                itemBuilder: (context, index) {
+                  return Dismissible(
+                    key: ValueKey(_groceryItems[index].id),
+                    direction: DismissDirection.horizontal,
+                    onDismissed: (direction) {
+                      _removeItem(_groceryItems[index]);
+                    },
+                    background: Container(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    child: ListTile(
+                      title: Text(
+                        _groceryItems[index].name,
+                        style: Theme.of(context).textTheme.bodyMedium!.copyWith(
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                      ),
+                      leading: Container(
+                        color: _groceryItems[index].category.color,
+                        height: 24,
+                        width: 24,
+                      ),
+                      trailing: Text(
+                        _groceryItems[index].quantity.toString(),
+                        style: Theme.of(context).textTheme.bodyMedium!.copyWith(
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                      ),
+                    ),
+                  );
+                },
+              )
+            : const Center(
+                child: Text('No groceries found'),
+              );
+
+    if (_error != null) {
+      currentWidget = Center(
+        child: Text(_error!),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -106,60 +169,7 @@ class _YourGroceriesState extends State<YourGroceries> {
               ),
         ),
       ),
-      body: FutureBuilder(
-        future: _loadedItems,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
-          if (snapshot.hasError) {
-            return Center(
-              child: Text(snapshot.error.toString()),
-            );
-          }
-          if (snapshot.data!.isEmpty) {
-            return const Center(
-              child: Text('No groceries found'),
-            );
-          }
-          return ListView.builder(
-            itemCount: snapshot.data!.length,
-            itemBuilder: (context, index) {
-              return Dismissible(
-                key: ValueKey(snapshot.data![index].id),
-                direction: DismissDirection.horizontal,
-                onDismissed: (direction) {
-                  _removeItem(snapshot.data![index]);
-                },
-                background: Container(
-                  color: Theme.of(context).colorScheme.error,
-                ),
-                child: ListTile(
-                  title: Text(
-                    snapshot.data![index].name,
-                    style: Theme.of(context).textTheme.bodyMedium!.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                  ),
-                  leading: Container(
-                    color: snapshot.data![index].category.color,
-                    height: 24,
-                    width: 24,
-                  ),
-                  trailing: Text(
-                    snapshot.data![index].quantity.toString(),
-                    style: Theme.of(context).textTheme.bodyMedium!.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
+      body: currentWidget,
     );
   }
 }
